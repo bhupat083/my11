@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Fantasy Team Optimizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .nav-tab.active { color: #2563eb; border-bottom: 3px solid #2563eb; }
+        @media (max-width: 768px) {
+            .mobile-snap-container { scroll-snap-type: x mandatory; display: flex !important; overflow-x: auto; gap: 0.75rem; padding: 0.75rem; min-height: 500px; scrollbar-width: none; }
+            .mobile-snap-container::-webkit-scrollbar { display: none; }
+            .team-card { scroll-snap-align: center; min-width: calc(100vw - 2.5rem); max-width: calc(100vw - 2.5rem); height: auto; }
+        }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 18px; width: 18px; border-radius: 50%; background: #2563eb; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .mode-btn.active { background-color: #0f172a; color: white; border-color: #0f172a; }
+        .priority-zone { min-height: 100px; border-width: 2px; }
+        .tier-high { border-color: #3b82f6 !important; background-color: #eff6ff !important; color: #1d4ed8 !important; }
+        .tier-medium { border-color: #10b981 !important; background-color: #ecfdf5 !important; color: #047857 !important; }
+        .tier-low { border-color: #f59e0b !important; background-color: #fffbeb !important; color: #b45309 !important; }
+        .tier-experimental { border-color: #94a3b8 !important; background-color: #f8fafc !important; color: #475569 !important; }
+        
+        .draggable-tag { cursor: grab; }
+        .draggable-tag:active { cursor: grabbing; }
+        .drop-target-active { border-style: solid !important; border-color: #2563eb !important; background-color: #dbeafe !important; }
+    </style>
+</head>
+<body class="pb-24">
+
+    <div class="max-w-6xl mx-auto px-3 mt-3">
+        <nav class="flex mb-3 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden sticky top-2 z-50">
+            <button onclick="switchTab('import')" id="tab-import" class="nav-tab flex-1 py-3 text-[10px] md:text-xs font-black text-slate-400 uppercase transition-colors">1. Import</button>
+            <button onclick="switchTab('review')" id="tab-review" class="nav-tab flex-1 py-3 text-[10px] md:text-xs font-black text-slate-400 uppercase transition-colors">2. Strategy</button>
+            <button onclick="switchTab('generate')" id="tab-generate" class="nav-tab flex-1 py-3 text-[10px] md:text-xs font-black text-slate-400 uppercase transition-colors">3. Teams</button>
+        </nav>
+
+        <!-- Import Tab -->
+        <div id="content-import" class="tab-content">
+            <div class="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                <textarea id="csvInput" class="w-full h-64 p-4 border border-slate-200 rounded-xl font-mono text-xs mb-4 outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Team, Role, Name, Selection%, Credit..."></textarea>
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="processCSV()" class="bg-blue-600 text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all">Process CSV</button>
+                    <button onclick="loadSampleData()" class="bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all">Load Demo</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strategy Tab -->
+        <div id="content-review" class="tab-content">
+            <div class="bg-white p-4 rounded-xl mb-4 border border-slate-200 flex justify-between items-center shadow-sm">
+                <div><h3 class="text-[10px] font-black uppercase text-slate-400">Total Players</h3><div id="totalPlayerCount" class="text-xl font-black text-slate-800">0</div></div>
+                <div class="text-right"><h3 class="text-[10px] font-black uppercase text-slate-400">Assigned Strategy</h3><div id="assignedPlayerCount" class="text-xl font-black text-blue-600">0</div></div>
+            </div>
+            <div class="mb-6">
+                <h3 class="text-[10px] font-black uppercase text-slate-500 mb-3 px-1">Weight Tiers (Drag to organize)</h3>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3" id="priorityContainer"></div>
+            </div>
+            <div class="bg-white p-3 rounded-xl mb-3 border border-slate-200 sticky top-[60px] z-30 shadow-sm">
+                <div class="flex justify-between items-center mb-2"><h3 class="text-[10px] font-black uppercase text-slate-500">Player Pool</h3><div id="statsCounter"></div></div>
+                <input type="text" id="playerSearch" oninput="renderPlayerGrid()" placeholder="Search players..." class="w-full px-4 py-2 border rounded-lg text-sm bg-slate-50 border-slate-100 outline-none">
+            </div>
+            <div id="playerGrid" class="space-y-4"></div>
+        </div>
+
+        <!-- Generate Tab -->
+        <div id="content-generate" class="tab-content">
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="font-black text-xs uppercase text-slate-500 tracking-widest">Configuration</h2>
+                    <div id="teamCounterLabel" class="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded">20 SQUADS TARGET</div>
+                </div>
+
+                <!-- Strategy Constraints -->
+                <div class="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-[10px] font-black uppercase text-slate-500">Strategy Group Constraints</h3>
+                        <span class="text-[8px] font-bold text-slate-400">MIN - MAX</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3" id="strategyConstraintContainer">
+                        <!-- Dynamic Strategy Group Inputs -->
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-3 mb-6">
+                    <button onclick="setMode('selection')" id="mode-selection" class="mode-btn active border-2 py-2 rounded-lg text-[10px] font-black uppercase transition-all">Selection %</button>
+                    <button onclick="setMode('priority')" id="mode-priority" class="mode-btn border-2 py-2 rounded-lg text-[10px] font-black uppercase transition-all">Priority</button>
+                </div>
+
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Risk Level</label>
+                            <span id="riskValueLabel" class="text-[10px] font-black text-blue-600 uppercase">Balanced</span>
+                        </div>
+                        <input type="range" id="riskLevel" min="0" max="100" value="50" oninput="updateRiskLabel(this.value)" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div class="p-3 bg-blue-50 rounded-lg border border-blue-100 text-[10px] font-black text-blue-700 uppercase flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Fixed: 11 Players
+                        </div>
+                        <div class="p-3 bg-emerald-50 rounded-lg border border-emerald-100 text-[10px] font-black text-emerald-700 uppercase flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Rule: Min 4 Per Team
+                        </div>
+                    </div>
+                    <button onclick="generateTeams()" class="w-full bg-blue-600 text-white py-4 rounded-xl font-black text-sm shadow-xl shadow-blue-100 active:scale-95 transition-all">GENERATE 20 SQUADS</button>
+                </div>
+            </div>
+
+            <div id="mobileIndicator" class="hidden text-center mb-3"><span class="bg-slate-800 text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest">Swipe Side-to-Side</span></div>
+            <div id="teamsContainer" class="mobile-snap-container grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-10"></div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full text-xs font-bold shadow-2xl opacity-0 transition-all z-[100] pointer-events-none"></div>
+
+    <script>
+        let players = [];
+        let lockedPlayers = new Set();
+        let blockedPlayers = new Set();
+        let playerCategories = {};
+        let generationMode = 'selection';
+        
+        const ROLES = ['WK', 'BAT', 'AR', 'BOWL'];
+        const TIERS = [
+            { id: 'high', label: 'High Priority', weight: 50, color: 'border-blue-200 bg-blue-50/50', css: 'tier-high' },
+            { id: 'medium', label: 'Med Priority', weight: 25, color: 'border-emerald-200 bg-emerald-50/50', css: 'tier-medium' },
+            { id: 'low', label: 'Low Priority', weight: 10, color: 'border-amber-200 bg-amber-50/50', css: 'tier-low' },
+            { id: 'experimental', label: 'Exp/Punt', weight: 2, color: 'border-slate-200 bg-slate-50/50', css: 'tier-experimental' }
+        ];
+
+        let PRIORITY_MAP = {
+            "high": ["BAT+WK+TOP", "ALL+TOP", "BOWL+4"],
+            "medium": ["BAT+TOP", "BOWL", "BAT+WK+MID", "ALL+MID"],
+            "low": ["BAT+MID", "WK"],
+            "experimental": ["BAT"]
+        };
+
+        const STRATEGY_GROUPS = [
+            { id: 'bats', label: 'BATs', strategies: ["BAT+WK+TOP", "BAT+TOP", "BAT+WK+MID", "BAT+MID"] },
+            { id: 'ars', label: 'ARs', strategies: ["ALL+TOP", "ALL+MID"] },
+            { id: 'bowls', label: 'BOWLs', strategies: ["BOWL+4", "BOWL"] },
+            { id: 'others', label: 'Others', strategies: ["BAT", "WK"] }
+        ];
+
+        let strategyConstraints = {
+            'bats': { min: 3, max: 6 },
+            'ars': { min: 1, max: 4 },
+            'bowls': { min: 3, max: 6 },
+            'others': { min: 0, max: 2 }
+        };
+
+        const ALL_CATEGORIES = ["BAT+WK+TOP", "ALL+TOP", "BOWL+4", "BAT+TOP", "BOWL", "BAT+WK+MID", "ALL+MID", "BAT+MID", "WK", "BAT"];
+
+        function calculateCategoryWeights() {
+            const totalWeight = Object.keys(PRIORITY_MAP).reduce((sum, t) => sum + (TIERS.find(x => x.id === t).weight * PRIORITY_MAP[t].length), 0);
+            let result = {};
+            Object.keys(PRIORITY_MAP).forEach(tKey => {
+                const tier = TIERS.find(t => t.id === tKey);
+                PRIORITY_MAP[tKey].forEach(cat => {
+                    const share = totalWeight > 0 ? ((tier.weight / totalWeight) * 100) : 0;
+                    result[cat] = { priority: `${share.toFixed(1)}%`, val: share, tier: tier };
+                });
+            });
+            return result;
+        }
+
+        function saveData() {
+            localStorage.setItem('fantasy_v10_data', JSON.stringify({ 
+                players, 
+                locked: [...lockedPlayers], 
+                blocked: [...blockedPlayers], 
+                cats: playerCategories, 
+                priorityMap: PRIORITY_MAP,
+                strategyConstraints
+            }));
+        }
+
+        function loadData() {
+            const saved = JSON.parse(localStorage.getItem('fantasy_v10_data'));
+            if (saved) {
+                players = saved.players || [];
+                lockedPlayers = new Set(saved.locked || []);
+                blockedPlayers = new Set(saved.blocked || []);
+                playerCategories = saved.cats || {};
+                if(saved.priorityMap) PRIORITY_MAP = saved.priorityMap;
+                if(saved.strategyConstraints) strategyConstraints = saved.strategyConstraints;
+            }
+            renderPriorityZones();
+            renderPlayerGrid();
+            renderStrategyConstraints();
+        }
+
+        function switchTab(t) {
+            document.querySelectorAll('.tab-content, .nav-tab').forEach(el => el.classList.remove('active'));
+            const content = document.getElementById(`content-${t}`);
+            const tab = document.getElementById(`tab-${t}`);
+            if(content) content.classList.add('active');
+            if(tab) tab.classList.add('active');
+            if(t === 'generate') renderStrategyConstraints();
+            if(t === 'review') renderPriorityZones();
+        }
+
+        // Drag and Drop Logic
+        function handleDragStart(e, cat) {
+            e.dataTransfer.setData('text/plain', cat);
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('drop-target-active');
+        }
+
+        function handleDragLeave(e) {
+            e.currentTarget.classList.remove('drop-target-active');
+        }
+
+        function handleDrop(e, tierId) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drop-target-active');
+            const cat = e.dataTransfer.getData('text/plain');
+            
+            // Remove from all tiers
+            Object.keys(PRIORITY_MAP).forEach(k => {
+                PRIORITY_MAP[k] = PRIORITY_MAP[k].filter(c => c !== cat);
+            });
+            
+            // Add to new tier
+            PRIORITY_MAP[tierId].push(cat);
+            saveData();
+            renderPriorityZones();
+            renderPlayerGrid();
+        }
+
+        function renderStrategyConstraints() {
+            const container = document.getElementById('strategyConstraintContainer');
+            if(!container) return;
+            const pool = players.filter(p => !blockedPlayers.has(p.id));
+            
+            container.innerHTML = STRATEGY_GROUPS.map(group => {
+                const count = pool.filter(p => group.strategies.includes(playerCategories[p.id])).length;
+                const config = strategyConstraints[group.id] || { min: 0, max: 11 };
+                
+                return `
+                <div class="bg-white p-3 rounded-lg border border-slate-200">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-[10px] font-black text-slate-600 uppercase">Min & Max ${group.label}</span>
+                        <span class="text-[8px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">${count} In Pool</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="relative">
+                            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-bold text-slate-300">MIN</span>
+                            <input type="number" value="${config.min}" min="0" max="11" 
+                                onchange="strategyConstraints['${group.id}'].min = parseInt(this.value); saveData();"
+                                class="w-full bg-slate-50 border-0 rounded text-[10px] font-black p-2 pl-8 text-center focus:ring-1 focus:ring-blue-500">
+                        </div>
+                        <div class="relative">
+                            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-bold text-slate-300">MAX</span>
+                            <input type="number" value="${config.max}" min="0" max="11" 
+                                onchange="strategyConstraints['${group.id}'].max = parseInt(this.value); saveData();"
+                                class="w-full bg-slate-50 border-0 rounded text-[10px] font-black p-2 pl-8 text-center focus:ring-1 focus:ring-blue-500">
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderPriorityZones() {
+            const container = document.getElementById('priorityContainer');
+            if(!container) return;
+            const weights = calculateCategoryWeights();
+            container.innerHTML = TIERS.map(tier => `
+                <div class="priority-zone border-dashed rounded-xl p-3 flex flex-col gap-2 transition-all ${tier.color}"
+                     ondragover="handleDragOver(event)" 
+                     ondragleave="handleDragLeave(event)" 
+                     ondrop="handleDrop(event, '${tier.id}')">
+                    <span class="text-[9px] font-black uppercase text-slate-500">${tier.label}</span>
+                    <div class="flex flex-wrap gap-1.5">
+                        ${PRIORITY_MAP[tier.id].map(cat => `
+                            <div draggable="true" 
+                                 ondragstart="handleDragStart(event, '${cat}')"
+                                 class="draggable-tag bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-sm text-[9px] font-black flex items-center gap-1">
+                                <svg class="w-2.5 h-2.5 text-slate-300" fill="currentColor" viewBox="0 0 20 20"><path d="M7 2a2 2 0 10.001 4.001A2 2 0 007 2zm0 6a2 2 0 10.001 4.001A2 2 0 007 8zm0 6a2 2 0 10.001 4.001A2 2 0 007 14zm6-12a2 2 0 10.001 4.001A2 2 0 0013 2zm0 6a2 2 0 10.001 4.001A2 2 0 0013 8zm0 6a2 2 0 10.001 4.001A2 2 0 0013 14z"></path></svg>
+                                ${cat} <span class="text-blue-600">${weights[cat]?.priority || '0%'}</span>
+                            </div>`).join('')}
+                    </div>
+                </div>`).join('');
+            document.getElementById('totalPlayerCount').innerText = players.length;
+            document.getElementById('assignedPlayerCount').innerText = Object.keys(playerCategories).length;
+        }
+
+        function processCSV() {
+            const input = document.getElementById('csvInput').value.trim();
+            if(!input) return showToast("CSV Empty");
+            const lines = input.split('\n');
+            const startIdx = (lines[0].toLowerCase().includes('team')) ? 1 : 0;
+            players = lines.slice(startIdx).map((line, i) => {
+                const p = line.split(',').map(s => s.trim());
+                if(p.length < 5) return null;
+                return { 
+                    id: i, 
+                    team: p[0], 
+                    role: p[1].toUpperCase(), 
+                    name: p[2], 
+                    selection: parseFloat(p[3]) || 0, 
+                    credit: parseFloat(p[4]) || 0 
+                };
+            }).filter(x => x);
+            saveData(); 
+            switchTab('review'); 
+            renderPlayerGrid(); 
+            renderPriorityZones();
+        }
+
+        function loadSampleData() {
+            document.getElementById('csvInput').value = `Team,Role,Name,Selection %,Credit\nIND,BAT,Virat Kohli,85,10.5\nIND,BAT,Rohit Sharma,78,10.0\nIND,WK,Rishabh Pant,65,9.0\nIND,AR,Hardik Pandya,72,9.5\nIND,BOWL,Jasprit Bumrah,88,10.0\nIND,BOWL,Kuldeep Yadav,55,8.5\nAUS,BAT,Travis Head,82,9.5\nAUS,BAT,David Warner,70,9.0\nAUS,WK,Josh Inglis,45,8.0\nAUS,AR,Glenn Maxwell,75,9.5\nAUS,BOWL,Pat Cummins,74,9.0\nAUS,BOWL,Adam Zampa,68,8.5\nIND,BOWL,Mohammad Siraj,50,8.5\nIND,BAT,Suryakumar Yadav,62,9.0\nAUS,BOWL,Mitchell Starc,65,9.5\nIND,BAT,Yashasvi Jaiswal,40,8.0\nAUS,BAT,Marnus Labuschagne,38,8.5`;
+            showToast("Demo Loaded");
+        }
+
+        function toggleLock(id) {
+            if(lockedPlayers.has(id)) {
+                lockedPlayers.delete(id);
+            } else if(lockedPlayers.size < 11) { 
+                lockedPlayers.add(id); 
+                blockedPlayers.delete(id); 
+            } else {
+                showToast("Maximum 11 locks allowed");
+            }
+            saveData(); 
+            renderPlayerGrid();
+        }
+
+        function toggleBlock(id) {
+            if(blockedPlayers.has(id)) {
+                blockedPlayers.delete(id);
+            } else { 
+                blockedPlayers.add(id); 
+                lockedPlayers.delete(id); 
+            }
+            saveData(); 
+            renderPlayerGrid();
+        }
+
+        function updateRiskLabel(val) {
+            const label = document.getElementById('riskValueLabel');
+            const tiers = ["Conservative", "Stable", "Balanced", "Aggressive", "High Risk Punt"];
+            label.innerText = tiers[Math.floor(val/20.1)];
+        }
+
+        function renderPlayerGrid() {
+            const query = document.getElementById('playerSearch').value.toLowerCase();
+            const grid = document.getElementById('playerGrid');
+            const stats = document.getElementById('statsCounter');
+            const weights = calculateCategoryWeights();
+            
+            stats.innerHTML = `<span class="bg-blue-600 text-white px-3 py-1 rounded-full text-[9px] font-black uppercase">Locked: ${lockedPlayers.size}/11</span>`;
+            
+            const grouped = players.reduce((acc, p) => { (acc[p.team] = acc[p.team] || []).push(p); return acc; }, {});
+            
+            grid.innerHTML = Object.entries(grouped).map(([team, list]) => {
+                const filtered = list.filter(p => p.name.toLowerCase().includes(query));
+                if(!filtered.length) return '';
+                
+                return `<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <div class="px-3 py-2 font-black text-[10px] bg-slate-50 border-b uppercase text-slate-500">${team}</div>
+                    <div class="p-2 grid grid-cols-1 gap-2">
+                        ${filtered.map(p => {
+                            const isLocked = lockedPlayers.has(p.id), isBlocked = blockedPlayers.has(p.id);
+                            const activeCat = playerCategories[p.id];
+                            const tierClass = activeCat ? weights[activeCat]?.tier?.css : '';
+                            return `<div class="flex flex-col p-3 border-2 rounded-xl transition-all ${isBlocked ? 'bg-red-50/50 opacity-50 border-red-100' : (isLocked ? 'bg-blue-50 border-blue-400' : 'bg-white border-slate-100')}">
+                                <div class="flex justify-between items-start mb-2">
+                                    <div><div class="text-sm font-bold text-slate-800">${p.name}</div><div class="flex gap-2 text-[9px] font-black uppercase text-slate-400 mt-0.5"><span>${p.role}</span> • <span>${p.selection}%</span> • <span>CR: ${p.credit}</span></div></div>
+                                    <div class="flex gap-1.5">
+                                        <button onclick="toggleLock(${p.id})" class="px-3 py-1.5 text-[9px] font-black rounded-lg transition-colors ${isLocked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}">Lock</button>
+                                        <button onclick="toggleBlock(${p.id})" class="px-3 py-1.5 text-[9px] font-black rounded-lg transition-colors ${isBlocked ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-400'}">Block</button>
+                                    </div>
+                                </div>
+                                <select onchange="playerCategories[${p.id}]=this.value; saveData(); renderPlayerGrid(); renderPriorityZones();" class="w-full text-[10px] font-black rounded-lg px-2 py-2 border-2 outline-none transition-all ${tierClass || 'border-slate-100 bg-slate-50 text-slate-500'}">
+                                    <option value="">Assign Strategy</option>
+                                    ${ALL_CATEGORIES.map(k => `<option value="${k}" ${playerCategories[p.id] === k ? 'selected' : ''}>${k}</option>`).join('')}
+                                </select>
+                            </div>`}).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function setMode(m) { 
+            generationMode = m; 
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.id === `mode-${m}`)); 
+        }
+
+        function generateTeams() {
+            const count = 20;
+            const riskValue = parseInt(document.getElementById('riskLevel').value);
+            const container = document.getElementById('teamsContainer'); 
+            container.innerHTML = '';
+            
+            const weightStats = calculateCategoryWeights();
+            const pool = players.filter(p => !blockedPlayers.has(p.id));
+            const fixed = players.filter(p => lockedPlayers.has(p.id));
+            const teamNames = [...new Set(players.map(p => p.team))];
+            
+            if (pool.length < 11) return showToast("Need at least 11 players in pool");
+
+            let validTeams = [], attempts = 0, maxAttempts = 5000;
+            
+            while (validTeams.length < count && attempts < maxAttempts) {
+                attempts++;
+                let tempTeam = [...fixed];
+                let currentPool = pool.filter(p => !fixed.some(f => f.id === p.id));
+                
+                // Shuffle pool
+                currentPool.sort((a, b) => {
+                    let scoreA, scoreB, noise = riskValue / 40;
+                    if (generationMode === 'selection') {
+                        scoreA = a.selection * (1 + (Math.random() - 0.5) * noise);
+                        scoreB = b.selection * (1 + (Math.random() - 0.5) * noise);
+                    } else {
+                        scoreA = (weightStats[playerCategories[a.id]]?.val || 1) * (1 + (Math.random() - 0.5) * noise);
+                        scoreB = (weightStats[playerCategories[b.id]]?.val || 1) * (1 + (Math.random() - 0.5) * noise);
+                    }
+                    return scoreB - scoreA;
+                });
+
+                // Fill to 11 respecting Strategy Group Constraints
+                for (let p of currentPool) {
+                    if (tempTeam.length >= 11) break;
+                    
+                    const pCat = playerCategories[p.id];
+                    if (!pCat) {
+                        tempTeam.push(p);
+                        continue;
+                    }
+
+                    const group = STRATEGY_GROUPS.find(g => g.strategies.includes(pCat));
+                    if (!group) {
+                        tempTeam.push(p);
+                        continue;
+                    }
+
+                    const currentGroupCount = tempTeam.filter(tp => group.strategies.includes(playerCategories[tp.id])).length;
+                    if (currentGroupCount >= strategyConstraints[group.id].max) continue;
+
+                    tempTeam.push(p);
+                }
+
+                if (tempTeam.length === 11) {
+                    const credits = tempTeam.reduce((s, p) => s + p.credit, 0);
+                    const teamCounts = teamNames.map(tn => tempTeam.filter(p => p.team === tn).length);
+                    
+                    // Validate Min Constraints for Strategy Groups
+                    const minConstraintCheck = STRATEGY_GROUPS.every(group => {
+                        const countInTeam = tempTeam.filter(tp => group.strategies.includes(playerCategories[tp.id])).length;
+                        return countInTeam >= strategyConstraints[group.id].min;
+                    });
+
+                    const balanceCheck = teamCounts.every(c => c >= 1 && c <= 7); 
+                    const roleCheck = ROLES.every(r => tempTeam.some(p => p.role === r));
+
+                    if (credits <= 100 && balanceCheck && roleCheck && minConstraintCheck) {
+                        const idString = tempTeam.map(p => p.id).sort().join(',');
+                        if (!validTeams.some(t => t.idString === idString)) {
+                            validTeams.push({ players: tempTeam, credits, idString });
+                            renderTeamCard(tempTeam, validTeams.length, credits);
+                        }
+                    }
+                }
+            }
+            
+            if (!validTeams.length) {
+                showToast("❌ No squads found meeting constraints. Adjust settings.");
+            } else { 
+                switchTab('generate'); 
+                if (window.innerWidth < 768) initScrollListener(); 
+            }
+        }
+
+        function renderTeamCard(team, index, credits) {
+            const container = document.getElementById('teamsContainer');
+            const totalSel = team.reduce((s, p) => s + p.selection, 0).toFixed(0);
+            const sorted = [...team].sort((a, b) => b.selection - a.selection);
+            const C = sorted[0], VC = sorted[1];
+            const summary = Object.entries(team.reduce((acc, p) => { acc[p.team] = (acc[p.team] || 0) + 1; return acc; }, {})).map(([n, c]) => `${n}:${c}`).join(' | ');
+
+            let roleHtml = '';
+            ROLES.forEach(r => {
+                const rp = team.filter(p => p.role === r);
+                if (rp.length) {
+                    roleHtml += `
+                    <div class="mb-2">
+                        <span class="text-[7px] font-black text-slate-300 uppercase block mb-0.5 tracking-tighter">${r}</span>
+                        <div class="space-y-0.5">
+                            ${rp.map(p => `
+                                <div class="flex justify-between items-center py-1 border-b border-slate-50 last:border-0">
+                                    <div class="flex items-center gap-1.5 overflow-hidden">
+                                        <span class="text-[8px] font-black px-1 rounded bg-slate-100 text-slate-500">${p.team}</span>
+                                        <span class="text-[11px] font-bold text-slate-700 truncate">${p.name}</span>
+                                    </div>
+                                    <span class="text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-full ${p.id === C.id ? 'text-blue-600 bg-blue-50 border border-blue-200' : (p.id === VC.id ? 'text-indigo-500 bg-indigo-50 border border-indigo-200' : 'invisible')}">
+                                        ${p.id === C.id ? 'C' : (p.id === VC.id ? 'VC' : '')}
+                                    </span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>`;
+                }
+            });
+
+            const card = document.createElement('div');
+            card.className = 'team-card bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col';
+            card.innerHTML = `
+                <div class="bg-slate-900 text-white px-3 py-2 flex justify-between items-center">
+                    <span class="font-black text-[9px] uppercase tracking-tighter">Squad #${index}</span>
+                    <div class="flex gap-3 text-[8px] font-black">
+                        <span class="text-blue-400">${credits.toFixed(1)} CR</span>
+                        <span class="text-slate-400">${totalSel}% SEL</span>
+                    </div>
+                </div>
+                <div class="p-3 bg-white flex-grow">${roleHtml}</div>
+                <div class="bg-slate-50 px-3 py-1.5 text-[8px] font-black text-slate-500 text-center uppercase border-t">${summary}</div>
+            `;
+            container.appendChild(card);
+        }
+
+        function initScrollListener() {
+            const container = document.getElementById('teamsContainer');
+            if(!container) return;
+            container.onscroll = () => {
+                const idx = Math.round(container.scrollLeft / container.offsetWidth);
+                const count = document.querySelectorAll('.team-card').length;
+                document.getElementById('teamCounterLabel').innerText = `SQUAD ${idx + 1} / ${count}`;
+                document.getElementById('mobileIndicator').classList.remove('hidden');
+            };
+        }
+
+        function showToast(m) { 
+            const t = document.getElementById('toast'); 
+            t.innerText = m; 
+            t.style.opacity = '1'; 
+            setTimeout(() => t.style.opacity = '0', 3000); 
+        }
+
+        window.onload = loadData;
+    </script>
+</body>
+</html>
